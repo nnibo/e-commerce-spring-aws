@@ -1,6 +1,7 @@
 package com.nicolas.orderservice.service;
 
 import com.nicolas.orderservice.dto.event.OrderCreatedEvent;
+import com.nicolas.orderservice.dto.event.PaymentProcessedEvent;
 import com.nicolas.orderservice.dto.request.OrderRequestDTO;
 import com.nicolas.orderservice.dto.response.OrderResponseDTO;
 import com.nicolas.orderservice.entity.OrderEntity;
@@ -9,6 +10,7 @@ import com.nicolas.orderservice.enums.PaymentStatus;
 import com.nicolas.orderservice.repository.IOrderRepository;
 import com.nicolas.orderservice.repository.IProductRepository;
 import io.awspring.cloud.sns.core.SnsTemplate;
+import io.awspring.cloud.sqs.annotation.SqsListener;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -26,7 +28,7 @@ public class OrderService {
     private final IProductRepository productRepository;
     private final SnsTemplate snsTemplate;
 
-    @Value("${aws.sns.topic}")
+    @Value("${aws.sns.order.topic}")
     private String orderTopic;
 
     @Transactional
@@ -62,6 +64,17 @@ public class OrderService {
         return orderRepository.findAll().stream().map(o ->
                 new OrderResponseDTO(o.getId(), o.getProductId(), o.getQuantity(), o.getAmount(), o.getOrderTime(), o.getPaymentStatus(), o.getPaymentType()))
                 .toList();
+    }
+
+    @Transactional
+    @SqsListener("${aws.sqs.payment.queue}")
+    public void updatePaymentStatus(PaymentProcessedEvent paymentProcessedEvent) {
+        OrderEntity order = orderRepository.findById(paymentProcessedEvent.orderId())
+                .orElseThrow(() -> new RuntimeException("Order not found"));
+
+        order.setPaymentStatus(paymentProcessedEvent.status());
+
+        orderRepository.save(order);
     }
 
     public void deleteOrder(UUID id) {
