@@ -68,13 +68,22 @@ public class OrderService {
 
     @Transactional
     @SqsListener("${aws.sqs.payment.queue}")
-    public void updatePaymentStatus(PaymentProcessedEvent paymentProcessedEvent) {
+    public void processPaymentResult(PaymentProcessedEvent paymentProcessedEvent) {
         OrderEntity order = orderRepository.findById(paymentProcessedEvent.orderId())
                 .orElseThrow(() -> new RuntimeException("Order not found"));
+
+        ProductEntity product = productRepository.findById(order.getProductId()).orElseThrow(() -> new RuntimeException("Product not found"));
+
+
+        if(paymentProcessedEvent.status() == PaymentStatus.FAILED) {
+            Integer productQuantityIfFailed = order.getQuantity() + product.getStock();
+            product.setStock(productQuantityIfFailed);
+        }
 
         order.setPaymentStatus(paymentProcessedEvent.status());
 
         orderRepository.save(order);
+        productRepository.save(product);
     }
 
     public void deleteOrder(UUID id) {
